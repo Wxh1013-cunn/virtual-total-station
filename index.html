@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>虚拟全站仪 · 交互模拟</title>
+<meta name="description" content="一个零依赖的浏览器全站仪模拟器：脚螺旋整平、照准部转动、望远镜俯仰、目镜视野、测距、置零与坐标记录，所有读数都由同一套三维几何实时算出。">
+<meta name="color-scheme" content="light">
+<meta property="og:title" content="虚拟全站仪 · 交互模拟">
+<meta property="og:description" content="零依赖的浏览器全站仪模拟器：整平、瞄准、目镜视野、测距与坐标记录。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f4f3ee'/%3E%3Cpath d='M6 26h20M16 8v18M16 8l-6 6M16 8l6 6' stroke='%2317171a' stroke-width='2' fill='none'/%3E%3Ccircle cx='16' cy='6' r='2.4' fill='%23c2452d'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --paper: #f4f3ee;
+    --card: #fbfaf6;
+    --ink: #17171a;
+    --ink-2: #4a4a4e;
+    --ink-3: #8b8b8f;
+    --line: #d9d6cc;
+    --accent: #c2452d;
+    --ok: #2f6b4f;
+    --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 12px 18px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+  header .sub { color: var(--ink-3); font-size: 11.5px; }
+  header .spacer { flex: 1; }
+  header .hint { color: var(--ink-3); font-size: 11px; font-family: var(--mono); }
+  main { flex: 1; display: grid; grid-template-columns: 248px 1fr 300px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+  .panel { border-right: 1px solid var(--line); padding: 12px 14px; overflow: auto; min-height: 0; }
+  .panel.right { border-right: 0; border-left: 1px solid var(--line); }
+  .panel h2 {
+    font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 8px; font-weight: 600;
+  }
+  .readout { font-family: var(--mono); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; border-bottom: 1px dotted #e4e1d8; }
+  .row:last-child { border-bottom: 0; }
+  .row .k { color: var(--ink-3); font-size: 11px; }
+  .row .v { font-size: 13px; letter-spacing: .01em; }
+  .big { font-size: 22px; letter-spacing: .01em; }
+  .big small { font-size: 11px; color: var(--ink-3); margin-left: 3px; }
+  .banner {
+    margin: 10px 0 4px; padding: 7px 9px; border: 1px solid var(--line);
+    background: var(--card); font-size: 11.5px; color: var(--ink-2);
+  }
+  .banner.ok { border-color: #b9d3c4; background: #eef5ef; color: var(--ok); }
+  .banner.warn { border-color: #e3c9b6; background: #faf0e6; color: #8a4c22; }
+  .screws { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px; }
+  .screw { border: 1px solid var(--line); background: var(--card); padding: 5px; text-align: center; }
+  .screw .lbl { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+  .screw button {
+    border: 1px solid var(--line); background: #fff; width: 100%; height: 22px;
+    cursor: pointer; font-size: 11px; color: var(--ink-2); font-family: var(--mono);
+  }
+  .screw button:active { background: #efece2; }
+  .stage { position: relative; min-height: 0; overflow: hidden; }
+  #scene { position: absolute; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #scene.dragging { cursor: grabbing; }
+  .scope-wrap {
+    position: absolute; left: 14px; bottom: 14px; width: 186px; height: 186px;
+    border-radius: 50%; overflow: hidden; border: 1px solid #cfccc2;
+    box-shadow: 0 6px 22px rgba(20,20,20,.14); background: #0f1012;
+  }
+  #scope { display: block; width: 100%; height: 100%; }
+  .scope-tag {
+    position: absolute; left: 16px; bottom: 204px; font-family: var(--mono);
+    font-size: 10px; color: var(--ink-3); letter-spacing: .1em;
+  }
+  .bar {
+    display: flex; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line);
+    align-items: center; flex-wrap: wrap;
+  }
+  button.act {
+    border: 1px solid #c9c5b9; background: var(--card); color: var(--ink);
+    padding: 7px 13px; cursor: pointer; font-size: 12px; letter-spacing: .02em;
+  }
+  button.act:hover { background: #fff; border-color: #a9a498; }
+  button.act:active { transform: translateY(1px); }
+  button.act.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  button.act.primary:hover { background: #2b2b2f; }
+  button.act:disabled { opacity: .45; cursor: default; }
+  .bar .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  .bar .note { color: var(--ink-3); font-size: 11px; font-family: var(--mono); }
+
+  .parts { display: grid; gap: 4px; }
+  .part {
+    display: flex; gap: 8px; align-items: baseline; padding: 5px 7px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .part:hover { border-color: var(--line); background: var(--card); }
+  .part.on { border-color: var(--ink); background: #fff; }
+  .part .n { font-family: var(--mono); font-size: 10px; color: var(--ink-3); width: 14px; }
+  .part .t { font-size: 12px; }
+
+  .card { border: 1px solid var(--line); background: var(--card); padding: 10px; margin-top: 10px; min-height: 86px; }
+  .card h3 { margin: 0 0 5px; font-size: 12.5px; }
+  .card p { margin: 0; color: var(--ink-2); font-size: 11.8px; line-height: 1.6; }
+
+  .tut { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .step { display: flex; gap: 8px; padding: 5px 0; font-size: 11.8px; color: var(--ink-3); }
+  .step .box { width: 13px; height: 13px; border: 1px solid #c4c0b4; flex: 0 0 auto; margin-top: 2px; }
+  .step.done { color: var(--ink); }
+  .step.done .box { background: var(--ok); border-color: var(--ok); }
+  .step.now { color: var(--ink); }
+  .step.now .box { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(194,69,45,.12); }
+  .step small { display: block; color: var(--ink-3); font-size: 11px; }
+
+  table.log { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10.5px; margin-top: 6px; }
+  table.log th { text-align: left; color: var(--ink-3); font-weight: 500; border-bottom: 1px solid var(--line); padding: 3px 2px; }
+  table.log td { padding: 3px 2px; border-bottom: 1px dotted #e4e1d8; }
+  .empty { color: var(--ink-3); font-size: 11px; padding: 6px 0; }
+
+  dialog.help {
+    width: min(700px, 92vw); border: 1px solid #cfccc2; background: var(--card);
+    color: var(--ink); padding: 22px 24px 18px; box-shadow: 0 20px 60px rgba(20,20,20,.25);
+  }
+  dialog.help::backdrop { background: rgba(23,23,26,.32); }
+  dialog.help h2 { font-size: 15px; margin: 0 0 4px; letter-spacing: .01em; }
+  dialog.help h3 { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 16px 0 6px; }
+  dialog.help table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  dialog.help td { padding: 4px 0; vertical-align: top; border-bottom: 1px dotted #e4e1d8; }
+  dialog.help td:first-child { width: 132px; font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  dialog.help p, dialog.help li { font-size: 12px; color: var(--ink-2); line-height: 1.65; }
+  dialog.help code { font-family: var(--mono); font-size: 11px; background: #efece2; padding: 1px 4px; }
+  dialog.help .close { position: absolute; right: 14px; top: 12px; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--ink-3); }
+
+  @media (max-width: 1080px) {
+    main { grid-template-columns: 210px 1fr 250px; }
+    .scope-wrap { width: 140px; height: 140px; }
+    .scope-tag { bottom: 158px; }
+  }
+  @media (max-width: 820px) {
+    main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .panel { border: 0; border-bottom: 1px solid var(--line); max-height: 168px; }
+    .panel.right { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>虚拟全站仪</h1>
+  <span class="sub">三脚架 · 基座 · 照准部 · 望远镜 · 测距</span>
+  <span class="spacer"></span>
+  <button class="act" id="btn-help" title="操作说明与模拟边界" style="padding:5px 10px">?</button>
+  <span class="hint" id="hint">左键拖动 = 转动照准部 / 俯仰望远镜　右键拖动 = 环绕视点　滚轮 = 缩放</span>
+</header>
+
+<main>
+  <section class="panel left">
+    <h2>实时读数</h2>
+    <div class="readout">
+      <div class="row"><span class="k">水平角 Hz</span><span class="v big" id="r-hz">0°00′00″</span></div>
+      <div class="row"><span class="k">天顶距 V</span><span class="v big" id="r-v">90°00′00″</span></div>
+      <div class="row"><span class="k">斜距 SD</span><span class="v" id="r-sd">—</span></div>
+      <div class="row"><span class="k">平距 HD</span><span class="v" id="r-hd">—</span></div>
+      <div class="row"><span class="k">高差 VD</span><span class="v" id="r-vd">—</span></div>
+      <div class="row"><span class="k">目标坐标 N / E / Z</span><span class="v" id="r-xyz" style="font-size:11.5px">—</span></div>
+    </div>
+    <div class="banner" id="b-level">水准气泡：未整平</div>
+    <div class="banner" id="b-signal">测距信号：无目标</div>
+
+    <h2 style="margin-top:16px">脚螺旋</h2>
+    <div class="screws">
+      <div class="screw"><div class="lbl">A</div><button data-screw="0" data-dir="1">▲</button><button data-screw="0" data-dir="-1">▼</button></div>
+      <div class="screw"><div class="lbl">B</div><button data-screw="1" data-dir="1">▲</button><button data-screw="1" data-dir="-1">▼</button></div>
+      <div class="screw"><div class="lbl">C</div><button data-screw="2" data-dir="1">▲</button><button data-screw="2" data-dir="-1">▼</button></div>
+    </div>
+    <button class="act" id="auto-level" style="margin-top:8px;width:100%">辅助：自动整平</button>
+    <div class="banner" style="margin-top:8px" id="b-tilt">仪器倾角 0.00′ / 0.00′</div>
+  </section>
+
+  <div class="stage">
+    <canvas id="scene"></canvas>
+    <div class="scope-tag">目镜视野</div>
+    <div class="scope-wrap"><canvas id="scope" width="372" height="372"></canvas></div>
+  </div>
+
+  <section class="panel right">
+    <h2>部件</h2>
+    <div class="parts" id="parts"></div>
+    <div class="card" id="part-card">
+      <h3>点一个部件</h3>
+      <p>右侧列出仪器的主要部件。点选可高亮并在画面上找到它，同时显示它的作用。也可以直接点画面上的编号圆点。</p>
+    </div>
+
+    <div class="tut">
+      <h2>操作流程</h2>
+      <div id="steps"></div>
+      <table class="log" id="log">
+        <thead><tr><th>点号</th><th>Hz</th><th>SD</th><th>N</th><th>E</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="log-empty">尚无观测记录</div>
+    </div>
+  </section>
+</main>
+
+<dialog class="help" id="help">
+  <button class="close" id="help-close" aria-label="关闭">×</button>
+  <h2>虚拟全站仪 · 使用说明</h2>
+  <p>左侧是读数与脚螺旋，中间是三维现场，左下是目镜视野，右侧是部件讲解与操作流程。所有数字都由同一套三维几何逐帧算出。</p>
+
+  <h3>操作</h3>
+  <table>
+    <tr><td>左键拖动</td><td>水平转动照准部（横向）/ 俯仰望远镜（纵向）</td></tr>
+    <tr><td>右键或 Shift 拖动</td><td>环绕观察视点，看清仪器与棱镜的空间关系</td></tr>
+    <tr><td>滚轮</td><td>推拉视距</td></tr>
+    <tr><td>← → ↑ ↓</td><td>微调照准，按住 Shift 为更小步长</td></tr>
+    <tr><td>Z / M / R</td><td>置零 / 测距 / 记录</td></tr>
+    <tr><td>脚螺旋 A B C</td><td>升降基座一角。气泡偏向哪边，就升哪边——气泡往高处跑</td></tr>
+  </table>
+
+  <h3>模拟了什么</h3>
+  <p>三个脚螺旋的高度拟合成一个平面，仪器整体按这个平面的法线倾斜；圆水准气泡的偏移量换算成倾角（角分）。望远镜的视线方向由照准部偏航与望远镜俯仰合成，与棱镜方向的夹角小于 0.35° 时判定为“已照准”。测距返回真实的斜距、平距、高差，并据此换算目标坐标。</p>
+
+  <h3>简化了什么</h3>
+  <ul>
+    <li>仪器是形似的简化几何体，不是 CAD 精度模型。</li>
+    <li>测距是理想模型：没有加常数、棱镜常数、气象改正与相位噪声，也没有照准误差。</li>
+    <li>只有单测站、单目标：没有对中、后视定向、导线、放样与数据导出。</li>
+  </ul>
+
+  <h3>开发用钩子</h3>
+  <p><code>?preset=aimed</code> 自动对准棱镜 · <code>?preset=tilted</code> 让三螺旋错开 · <code>?do=measure</code> 载入后自动测距并记录 · <code>?part=tube</code> 打开指定部件的介绍卡。</p>
+</dialog>
+
+<div class="bar">
+  <button class="act primary" id="btn-measure">测距</button>
+  <button class="act" id="btn-zero">置零 (Hz)</button>
+  <button class="act" id="btn-record">记录</button>
+  <span class="sep"></span>
+  <button class="act" id="btn-focus">调焦 +</button>
+  <button class="act" id="btn-lock">制动</button>
+  <span class="sep"></span>
+  <button class="act" id="btn-view">全景 / 近景</button>
+  <button class="act" id="btn-reset">复位</button>
+  <span class="note" id="note">测站 N 1000.000 E 1000.000 Z 100.000 · 仪器高 1.500 m</span>
+</div>
+
+<script>
+"use strict";
+window.onerror = function (m, src, line, col) {
+  var n = document.getElementById("note");
+  if (n) { n.textContent = "JS ERROR: " + m + " @" + line + ":" + col; n.style.color = "#c2452d"; }
+  return false;
+};
+
+/* ------------------------------------------------------------------ math */
+const V3 = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+  mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  len: (a) => Math.hypot(a[0], a[1], a[2]),
+  norm: (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+};
+const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };
+const rotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };
+const mmul = (A, B) => {
+  const C = new Array(9);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++)
+    C[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c];
+  return C;
+};
+const mapply = (M, v) => [
+  M[0] * v[0] + M[1] * v[1] + M[2] * v[2],
+  M[3] * v[0] + M[4] * v[1] + M[5] * v[2],
+  M[6] * v[0] + M[7] * v[1] + M[8] * v[2],
+];
+function rotAxis(axis, a) {
+  const [x, y, z] = V3.norm(axis);
+  const c = Math.cos(a), s2 = Math.sin(a), t = 1 - c;
+  return [
+    t * x * x + c, t * x * y - s2 * z, t * x * z + s2 * y,
+    t * x * y + s2 * z, t * y * y + c, t * y * z - s2 * x,
+    t * x * z - s2 * y, t * y * z + s2 * x, t * z * z + c,
+  ];
+}
+const IDENT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+function xf(M, t) { return { R: M, t }; }
+const xmul = (a, b) => ({ R: mmul(a.R, b.R), t: V3.add(mapply(a.R, b.t), a.t) });
+const xapply = (x, v) => V3.add(mapply(x.R, v), x.t);
+const xdir = (x, v) => mapply(x.R, v);
+const TRAN = (v) => xf(IDENT, v);
+const RX = (a) => xf(rotX(a), [0, 0, 0]);
+const RY = (a) => xf(rotY(a), [0, 0, 0]);
+const RZ = (a) => xf(rotZ(a), [0, 0, 0]);
+
+/* -------------------------------------------------------------- geometry */
+function box(w, h, d) {
+  const x = w / 2, y = h / 2, z = d / 2;
+  const v = [
+    [-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z],
+    [-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z],
+  ];
+  const f = [
+    [0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7],
+    [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0],
+  ];
+  return { v, f };
+}
+function cyl(r, h, seg = 14, rTop = r) {
+  const v = [], f = [];
+  for (let i = 0; i < seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    v.push([Math.cos(a) * r, -h / 2, Math.sin(a) * r]);
+  }
+  for (let i = 0; i < seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    v.push([Math.cos(a) * rTop, h / 2, Math.sin(a) * rTop]);
+  }
+  for (let i = 0; i < seg; i++) {
+    const j = (i + 1) % seg;
+    f.push([i, j, seg + j, seg + i]);
+  }
+  const bottom = [], top = [];
+  for (let i = 0; i < seg; i++) bottom.push(seg - 1 - i);
+  for (let i = 0; i < seg; i++) top.push(seg + i);
+  f.push(bottom); f.push(top);
+  return { v, f };
+}
+
+/* ------------------------------------------------------------- the station */
+const H_TRIPOD = 1.44;
+const H_TRIB = 0.045;
+const Y_CIRC = 0.145;
+const Y_ALID = 0.148;
+const Y_TRUN = 0.135;
+
+const PARTS = [];
+function part(id, name, geo, x, tone, info, anchor) {
+  PARTS.push({ id, name, geo, x, tone, info, anchor });
+  return PARTS[PARTS.length - 1];
+}
+
+// tripod
+for (let i = 0; i < 3; i++) {
+  const a = (-Math.PI / 2) + (i / 3) * Math.PI * 2;
+  const legGeo = cyl(0.026, H_TRIPOD, 8, 0.018);
+  PARTS.push({ id: "leg" + i, name: "三脚架腿", group: "ground", geo: legGeo,
+    off: [Math.cos(a) * 0.17, H_TRIPOD / 2 - 0.02, Math.sin(a) * 0.17], rot: rotAxis([-Math.sin(a), 0, Math.cos(a)], 0.15), tone: 4,
+    info: "三条腿撑起仪器，脚尖踩实后整台仪器的稳定性由它决定。腿长决定仪器高。",
+    anchor: [Math.cos(a) * 0.30, H_TRIPOD * 0.55, Math.sin(a) * 0.30] });
+}
+PARTS.push({ id: "head", name: "三脚架头", group: "ground", geo: cyl(0.085, 0.03, 16), off: [0, H_TRIPOD, 0], tone: 4,
+  info: "架头连接三脚架与基座，中心有连接螺旋。用垂球或激光对点器把仪器对到测站上。", anchor: [0, H_TRIPOD, 0] });
+
+PARTS.push({ id: "base", name: "基座", group: "body", geo: cyl(0.088, 0.06, 18), off: [0, 0.03, 0], tone: 3,
+  info: "基座固定在三脚架上，下面有三个脚螺旋；它不随照准部转动，是整台仪器的水平基准。", anchor: [0, 0.03, 0.088] });
+
+const SCREW_POS = [];
+for (let i = 0; i < 3; i++) {
+  const a = -Math.PI / 2 + (i / 3) * Math.PI * 2;
+  SCREW_POS.push([Math.cos(a) * 0.072, Math.sin(a) * 0.072]);
+}
+PARTS.push({ id: "screws", name: "脚螺旋 ×3", group: "body", geo: cyl(0.013, 0.035, 10), off: [0, 0.072, 0], tone: 3,
+  info: "三个脚螺旋升降基座的一角，从而把仪器调平。规则：气泡偏向哪边，就把哪边的螺旋升高——气泡往高处跑。",
+  anchor: [SCREW_POS[0][0], 0.075, SCREW_POS[0][1]] });
+
+PARTS.push({ id: "tribrach", name: "基座盘", group: "body", geo: cyl(0.086, 0.035, 18), off: [0, 0.105, 0], tone: 2,
+  info: "架在三个脚螺旋上的圆盘，承托照准部的竖直轴。整平就是把这个面调成水平。", anchor: [0, 0.105, 0.086] });
+
+PARTS.push({ id: "vial", name: "圆水准器", group: "body", geo: cyl(0.032, 0.014, 18), off: [0.055, 0.138, 0.055], tone: 0,
+  info: "气泡居中表示基座水平。气泡偏出中心越多，仪器倾斜越大——倾斜会直接带进水平角误差。", anchor: [0.052, 0.136, 0.052] });
+
+PARTS.push({ id: "circle", name: "水平度盘", group: "body", geo: cyl(0.082, 0.016, 24), off: [0, 0.14, 0], tone: 1,
+  info: "刻有 0–360° 的水平度盘。读数由度盘刻度与照准部上的指标线共同决定。", anchor: [0, 0.148, 0.082] });
+
+PARTS.push({ id: "alidade", name: "照准部", group: "alid", geo: box(0.15, 0.075, 0.15), off: [0, 0.037, 0], tone: 1,
+  info: "绕竖轴转动的整个上部：望远镜、显示器、键盘都装在它上面。水平转动就是转动它。", anchor: [0, 0.04, 0.075] });
+
+for (const s of [-1, 1]) {
+  PARTS.push({ id: "standard" + s, name: "支架", group: "alid", geo: box(0.02, 0.10, 0.075), off: [s * 0.062, 0.11, 0], tone: 3,
+    info: "左右两个支架托住望远镜的横轴。横轴必须垂直于竖轴，否则水平角会随俯仰变化。", anchor: [s * 0.062, 0.15, 0] });
+}
+PARTS.push({ id: "tube", name: "望远镜", group: "tele", geo: cyl(0.03, 0.20, 16), off: [0, 0, 0], rot: rotX(Math.PI / 2), tone: 0,
+  info: "绕横轴俯仰，用来瞄准目标。目镜里看出去有十字丝，用水平和垂直微动螺旋把它对准棱镜中心。", anchor: [0, 0, 0] });
+PARTS.push({ id: "focus", name: "调焦螺旋", group: "tele", geo: cyl(0.017, 0.02, 12), off: [0.05, 0.03, 0.016], tone: 1,
+  info: "调节物镜与十字丝之间的成像位置，让目标清晰。距离变了就要重新调焦。", anchor: [0.05, 0.03, 0.016] });
+PARTS.push({ id: "display", name: "显示屏", group: "alid", geo: box(0.075, 0.05, 0.014), off: [-0.058, 0.05, 0.058], rot: rotY(-0.4), tone: 0,
+  info: "显示 Hz / V / SD 读数。真机上还能切换坐标、放样与存储界面。", anchor: [-0.058, 0.05, 0.064] });
+PARTS.push({ id: "keypad", name: "键盘", group: "alid", geo: box(0.06, 0.008, 0.045), off: [-0.052, 0.092, 0.05], rot: rotY(-0.4), tone: 2,
+  info: "测距、置零、记录等功能键。本模拟把这些键放到了页面底部，功能一一对应。", anchor: [-0.052, 0.096, 0.05] });
+PARTS.push({ id: "handle", name: "提把", group: "alid", geo: box(0.14, 0.014, 0.024), off: [0, 0.175, 0], tone: 2,
+  info: "搬运时提的把手，也常作为外接测距模块的安装位置。", anchor: [0, 0.175, 0] });
+
+/* --------------------------------------------------------------- the scene */
+const PRISM = [2.35, 1.45, -1.45];
+const STATION = [1000, 1000, 100];
+const TARGETS = [{ pos: PRISM, r: 0.035 }];
+
+const hotspots = [];
+const state = {
+  yaw: 1.86,
+  pitch: 0.045,
+  screws: [0, 0, 0],
+  orbit: { az: 1.02, el: 0.20, r: 4.6, target: [1.1, 1.2, -0.7] },
+  focus: 2,
+  locked: false,
+  brake: false,
+  hzZero: 0,
+  records: [],
+  selected: null,
+  stepsDone: [false, false, false, false, false],
+};
+
+/* ------------------------------------------------------------------ camera */
+function makeCam(eye, target, fov, w, h) {
+  const f = V3.norm(V3.sub(target, eye));
+  const r = V3.norm(V3.cross(f, [0, 1, 0]));
+  const u = V3.cross(r, f);
+  return { eye, f, r, u, k: (h / 2) / Math.tan(fov / 2), w, h };
+}
+function project(cam, p) {
+  const d = V3.sub(p, cam.eye);
+  const z = V3.dot(d, cam.f);
+  if (z <= 0.02) return null;
+  return [cam.w / 2 + (V3.dot(d, cam.r) * cam.k) / z, cam.h / 2 - (V3.dot(d, cam.u) * cam.k) / z, z];
+}
+
+/* ---------------------------------------------------------------- shading */
+const LIGHT = V3.norm([-0.45, 0.82, 0.36]);
+const TONES_LIGHT = ["#fcfbf7", "#f2efe7", "#e4e0d5", "#d2cdbf", "#bcb7a7", "#a19c8c"];
+const TONES_DARK = ["#2a2b2f", "#232427", "#1d1e21", "#17181b", "#121316", "#0d0e10"];
+
+function shade(tone, normal) {
+  const l = Math.max(0, V3.dot(normal, LIGHT));
+  const t = Math.min(5, Math.max(1, Math.round(1 + tone * 0.55 + (1 - l) * 2.6)));
+  return t;
+}
+
+/* --------------------------------------------------------------- renderer */
+function renderScene(ctx, cam, opts) {
+  const polys = [];
+  const fillBg = opts.bg;
+  ctx.clearRect(0, 0, cam.w, cam.h);
+  ctx.fillStyle = fillBg;
+  ctx.fillRect(0, 0, cam.w, cam.h);
+
+  // ground grid
+  const grid = opts.grid !== false;
+  if (grid) {
+    ctx.lineWidth = 1;
+    for (let i = -10; i <= 10; i++) {
+      const strong = i % 5 === 0;
+      ctx.strokeStyle = strong ? "rgba(120,116,104,.30)" : "rgba(120,116,104,.13)";
+      const a = project(cam, [i, 0, -10]), b = project(cam, [i, 0, 10]);
+      const c = project(cam, [-10, 0, i]), d = project(cam, [10, 0, i]);
+      if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+      if (c && d) { ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.stroke(); }
+    }
+  }
+
+  const body = xmul(TRAN([0, H_TRIPOD, 0]), xmul(RZ(state.tiltZ || 0), RX(state.tiltX || 0)));
+  const alid = xmul(body, xmul(TRAN([0, Y_ALID, 0]), RY(state.yaw)));
+  const tele = xmul(alid, xmul(TRAN([0, Y_TRUN, 0]), RX(-state.pitch)));
+
+  const scene = [];
+  const nodes = { ground: TRAN([0, 0, 0]), body, alid, tele };
+  for (const p of PARTS) {
+    const node = nodes[p.group] || nodes.ground;
+    if (p.id === "screws") {
+      SCREW_POS.forEach(([sx, sz]) => {
+        scene.push({ geo: p.geo, x: xmul(node, TRAN([sx, 0.072, sz])), tone: p.tone, id: p.id });
+      });
+      continue;
+    }
+    const local = xmul(TRAN(p.off || [0, 0, 0]), xf(p.rot || IDENT, [0, 0, 0]));
+    scene.push({ geo: p.geo, x: xmul(node, local), tone: p.tone, id: p.id });
+  }
+
+  // target: prism pole
+  scene.push({ geo: cyl(0.014, 1.5, 8), x: TRAN([PRISM[0], 0.75, PRISM[2]]), tone: 3, id: "pole" });
+  scene.push({ geo: box(0.09, 0.09, 0.09), x: TRAN(PRISM), tone: 0, accent: true, id: "prism" });
+
+  // wall
+  scene.push({ geo: box(6, 2.9, 0.3), x: TRAN([2.2, 1.45, -3.9]), tone: 1, id: "wall" });
+  scene.push({ geo: box(0.9, 2.0, 0.1), x: TRAN([0.6, 1.0, -3.73]), tone: 4, id: "door" });
+  scene.push({ geo: box(1.4, 0.8, 0.1), x: TRAN([3.2, 1.85, -3.73]), tone: 4, id: "window" });
+
+  for (const item of scene) {
+    const { geo, x } = item;
+    const world = geo.v.map((v) => xapply(x, v));
+    for (const face of geo.f) {
+      const pts = face.map((i) => world[i]);
+      const n0 = V3.cross(V3.sub(pts[1], pts[0]), V3.sub(pts[2], pts[0]));
+      if (V3.len(n0) < 1e-9) continue;
+      let n = V3.norm(n0);
+      const c = pts.reduce((a, p) => V3.add(a, p), [0, 0, 0]).map((v) => v / pts.length);
+      if (V3.dot(n, V3.sub(c, cam.eye)) > 0) { n = V3.mul(n, -1); }
+      if (V3.dot(n, V3.sub(c, cam.eye)) > 0) continue;
+      const proj = pts.map((p) => project(cam, p));
+      if (proj.some((p) => !p)) continue;
+      const depth = V3.len(V3.sub(c, cam.eye));
+      polys.push({ proj, depth, tone: shade(item.tone, n), item, c });
+    }
+  }
+
+  // contact shadows
+  for (const [wx, wz, rr] of [[0, 0, 0.95], [PRISM[0], PRISM[2], 0.42]]) {
+    const c = project(cam, [wx, 0.002, wz]);
+    if (!c) continue;
+    const edge = project(cam, [wx + rr, 0.002, wz]);
+    if (!edge) continue;
+    const rad = Math.abs(edge[0] - c[0]);
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(c[0], c[1], rad, rad * 0.42, 0, 0, Math.PI * 2);
+    ctx.fillStyle = opts.dark ? "rgba(0,0,0,.35)" : "rgba(60,56,44,.09)";
+    ctx.filter = "blur(6px)";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  hotspots.length = 0;
+  if (!opts.dark) {
+    PART_LIST.forEach((pid, i) => {
+      const pp = partInfo(pid);
+      if (!pp) return;
+      const node = nodes[pp.group] || nodes.ground;
+      const world = xapply(node, pp.anchor);
+      const pr = project(cam, world);
+      if (pr) hotspots.push({ id: pid, i, x: pr[0], y: pr[1], z: pr[2] });
+    });
+  }
+
+  polys.sort((a, b) => b.depth - a.depth);
+
+  const accent = opts.accent;
+  const inks = opts.dark ? TONES_DARK : TONES_LIGHT;
+  for (const poly of polys) {
+    ctx.beginPath();
+    ctx.moveTo(poly.proj[0][0], poly.proj[0][1]);
+    for (let i = 1; i < poly.proj.length; i++) ctx.lineTo(poly.proj[i][0], poly.proj[i][1]);
+    ctx.closePath();
+    let fill = inks[poly.tone];
+    if (opts.selectedId && poly.item.id === opts.selectedId) fill = opts.dark ? "#4a3b32" : "#e8d9c9";
+    if (poly.item.accent) fill = accent || "#c2452d";
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = opts.dark ? "rgba(0,0,0,.55)" : "rgba(30,28,24,.35)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  if (!opts.dark && hotspots.length) {
+    ctx.save();
+    ctx.font = "600 9.5px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const cx = hotspots.reduce((a, h) => a + h.x, 0) / hotspots.length;
+    const cy = hotspots.reduce((a, h) => a + h.y, 0) / hotspots.length;
+    const R = 96;
+    hotspots.forEach((h, i) => {
+      const on = state.selected === h.id;
+      const a = -Math.PI * 0.92 + (i / Math.max(1, hotspots.length - 1)) * Math.PI * 0.84;
+      const lx = cx + Math.cos(a) * R, ly = cy + Math.sin(a) * R * 0.92;
+      h.lx = lx; h.ly = ly;
+      ctx.strokeStyle = on ? "rgba(194,69,45,.75)" : "rgba(60,56,46,.28)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(h.x, h.y); ctx.lineTo(lx, ly); ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = on ? "#c2452d" : "rgba(60,56,46,.55)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(lx, ly, on ? 9.5 : 8, 0, Math.PI * 2);
+      ctx.fillStyle = on ? "#c2452d" : "rgba(252,251,247,.96)";
+      ctx.fill();
+      ctx.strokeStyle = on ? "#c2452d" : "rgba(40,38,32,.42)";
+      ctx.stroke();
+      ctx.fillStyle = on ? "#fcfbf7" : "#3a3833";
+      ctx.fillText(String(h.i + 1), lx, ly + 0.5);
+    });
+    ctx.restore();
+  }
+  if (!opts.dark && state.locked) {
+    const eye = xapply(tele, [0, 0, 0.11]);
+    const a = project(cam, eye), b = project(cam, PRISM);
+    if (a && b) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(194,69,45,.55)";
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  return { body, alid, tele };
+}
+
+/* ------------------------------------------------------------------ scope */
+function drawScope() {
+  const c = scopeCanvas, ctx = c.getContext("2d");
+  const w = c.width, h = c.height;
+  const tele = teleWorld();
+  const dir = V3.norm(xdir(tele, [0, 0, 1]));
+  const eye = xapply(tele, [0, 0, 0]);
+  const cam = makeCam(eye, V3.add(eye, dir), 1.9 * Math.PI / 180, w, h);
+  const ideal = Math.max(1, Math.min(4, Math.round(1 + (Math.hypot(PRISM[0], PRISM[2]) - 1) / 1.2)));
+  const blur = Math.abs(state.focus - ideal) * 1.6;
+  ctx.save();
+  ctx.filter = blur > 0.2 ? `blur(${blur}px)` : "none";
+  renderScene(ctx, cam, { bg: "#0f1012", dark: true, grid: false, accent: "#e2604a" });
+  ctx.restore();
+
+  // reticle
+  ctx.strokeStyle = "rgba(230,230,225,.85)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(w / 2 - 46, h / 2); ctx.lineTo(w / 2 - 12, h / 2);
+  ctx.moveTo(w / 2 + 12, h / 2); ctx.lineTo(w / 2 + 46, h / 2);
+  ctx.moveTo(w / 2, h / 2 - 46); ctx.lineTo(w / 2, h / 2 - 12);
+  ctx.moveTo(w / 2, h / 2 + 12); ctx.lineTo(w / 2, h / 2 + 46);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(w / 2, h / 2, 3.2, 0, Math.PI * 2); ctx.stroke();
+
+  // stadia ticks
+  ctx.strokeStyle = "rgba(230,230,225,.35)";
+  for (let i = -3; i <= 3; i++) {
+    if (!i) continue;
+    const y = h / 2 + i * 22;
+    ctx.beginPath(); ctx.moveTo(w / 2 - (Math.abs(i) === 3 ? 16 : 9), y); ctx.lineTo(w / 2 + (Math.abs(i) === 3 ? 16 : 9), y); ctx.stroke();
+  }
+
+  if (state.locked) {
+    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 260);
+    ctx.strokeStyle = `rgba(226,96,74,${0.35 + 0.4 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(w / 2, h / 2, 34, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(226,96,74,.9)";
+    ctx.font = "600 15px monospace";
+    ctx.fillText("●", w / 2 - 40, h / 2 + 22);
+  }
+}
+
+function teleWorld() {
+  const body = xmul(TRAN([0, H_TRIPOD, 0]), xmul(RZ(state.tiltZ || 0), RX(state.tiltX || 0)));
+  const alid = xmul(body, xmul(TRAN([0, Y_ALID, 0]), RY(state.yaw)));
+  return xmul(alid, xmul(TRAN([0, Y_TRUN, 0]), RX(-state.pitch)));
+}
+
+/* ------------------------------------------------------------------- state */
+function updateTilt() {
+  // three screws sit on a circle; their heights define a plane
+  const r = 0.072;
+  const pts = state.screws.map((hh, i) => {
+    const a = -Math.PI / 2 + (i / 3) * Math.PI * 2;
+    return [Math.cos(a) * r, hh, Math.sin(a) * r];
+  });
+  const n = V3.norm(V3.cross(V3.sub(pts[1], pts[0]), V3.sub(pts[2], pts[0])));
+  const up = n[1] > 0 ? n : V3.mul(n, -1);
+  state.tiltX = Math.atan2(up[2], up[1]);
+  state.tiltZ = -Math.atan2(up[0], up[1]);
+  const off = Math.hypot(Math.atan2(up[0], up[1]), Math.atan2(up[2], up[1]));
+  state.tilt = off;
+}
+
+function angleToTarget() {
+  const tele = teleWorld();
+  const eye = xapply(tele, [0, 0, 0]);
+  const dir = V3.norm(xdir(tele, [0, 0, 1]));
+  const to = V3.sub(PRISM, eye);
+  const d = V3.len(to);
+  const cos = V3.dot(dir, V3.norm(to));
+  return { off: Math.acos(Math.max(-1, Math.min(1, cos))), dist: d, eye };
+}
+
+/* -------------------------------------------------------------------- view */
+const scene = document.getElementById("scene");
+const scopeCanvas = document.getElementById("scope");
+const sctx = scene.getContext("2d");
+
+let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+function resize() {
+  const r = scene.getBoundingClientRect();
+  W = Math.max(320, r.width); H = Math.max(240, r.height);
+  scene.width = W * DPR; scene.height = H * DPR;
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+function camFromOrbit() {
+  const { az, el, r, target } = state.orbit;
+  const eye = [
+    target[0] + Math.cos(el) * Math.sin(az) * r,
+    target[1] + Math.sin(el) * r,
+    target[2] + Math.cos(el) * Math.cos(az) * r,
+  ];
+  return makeCam(eye, target, 34 * Math.PI / 180, W, H);
+}
+
+/* -------------------------------------------------------------------- loop */
+let lastT = 0;
+function frame(t) {
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
+  lastT = t;
+  if (!state.dragging) {
+    // slow idle settle of nothing: keep static
+  }
+  updateTilt();
+  const res = renderScene(sctx, camFromOrbit(), {
+    bg: "#f4f3ee", dark: false, grid: true,
+    selectedId: state.selected,
+  });
+  drawScope();
+  updateHud();
+  requestAnimationFrame(frame);
+}
+
+/* --------------------------------------------------------------------- hud */
+const el = (id) => document.getElementById(id);
+const fmtAngle = (deg) => {
+  let d = ((deg % 360) + 360) % 360;
+  const dd = Math.floor(d);
+  const mm = Math.floor((d - dd) * 60);
+  const ss = Math.floor(((d - dd) * 60 - mm) * 60);
+  return `${String(dd).padStart(3, "0")}°${String(mm).padStart(2, "0")}′${String(ss).padStart(2, "0")}″`;
+};
+
+let lastMeasure = null;
+function updateHud() {
+  const hz = ((state.yaw * 180 / Math.PI - state.hzZero * 180 / Math.PI) % 360 + 360) % 360;
+  const v = 90 - (state.pitch * 180 / Math.PI);
+  el("r-hz").textContent = fmtAngle(hz);
+  el("r-v").textContent = fmtAngle(v);
+
+  const t = angleToTarget();
+  state.locked = t.off < 0.35 * Math.PI / 180;
+  el("b-signal").textContent = state.locked ? "测距信号：已照准棱镜" : "测距信号：无目标";
+  el("b-signal").className = "banner" + (state.locked ? " ok" : "");
+
+  const tiltMin = (state.tilt || 0) * 180 / Math.PI * 60;
+  el("b-tilt").textContent = `仪器倾角 ${tiltMin.toFixed(2)}′ · ${tiltMin < 0.5 ? "已整平" : "需整平"}`;
+  el("b-level").textContent = tiltMin < 0.5 ? "水准气泡：居中" : "水准气泡：偏出中心";
+  el("b-level").className = "banner" + (tiltMin < 0.5 ? " ok" : " warn");
+
+  if (lastMeasure) {
+    el("r-sd").textContent = lastMeasure.sd.toFixed(3) + " m";
+    el("r-hd").textContent = lastMeasure.hd.toFixed(3) + " m";
+    el("r-vd").textContent = (lastMeasure.vd >= 0 ? "+" : "") + lastMeasure.vd.toFixed(3) + " m";
+    el("r-xyz").textContent = `${lastMeasure.n.toFixed(3)} / ${lastMeasure.e.toFixed(3)} / ${lastMeasure.z.toFixed(3)}`;
+  }
+
+  checkSteps(tiltMin, t);
+}
+
+/* ------------------------------------------------------------------- steps */
+const STEPS = [
+  { id: 0, t: "整平仪器", d: "用三个脚螺旋把圆水准气泡调进中心：气泡偏向哪，就把哪侧的螺旋升高。" },
+  { id: 1, t: "瞄准棱镜", d: "水平转动照准部、俯仰望远镜，把十字丝压到远处棱镜上。" },
+  { id: 2, t: "测距", d: "按下「测距」，仪器发射激光到棱镜并算斜距 SD。" },
+  { id: 3, t: "置零 / 设置测站", d: "把当前视线方向置为 0°00′00″，之后的角度都相对它。" },
+  { id: 4, t: "记录坐标", d: "记录该点的 Hz、SD，并换算成 N / E / Z 坐标。" },
+];
+function renderSteps() {
+  const box = el("steps");
+  box.innerHTML = STEPS.map((s) => {
+    const done = state.stepsDone[s.id];
+    const now = !done && state.stepsDone.indexOf(false) === s.id;
+    return `<div class="step ${done ? "done" : ""} ${now ? "now" : ""}">
+      <div class="box"></div>
+      <div><b>${s.t}</b><small>${s.d}</small></div>
+    </div>`;
+  }).join("");
+  el("log-empty").style.display = state.records.length ? "none" : "block";
+}
+
+function checkSteps(tiltMin, t) {
+  if (!state.stepsDone[0] && tiltMin < 0.5) { state.stepsDone[0] = true; renderSteps(); }
+  if (!state.stepsDone[1] && t.off < 0.20 * Math.PI / 180) { state.stepsDone[1] = true; renderSteps(); }
+  if (!state.stepsDone[4] && state.records.length) { state.stepsDone[4] = true; renderSteps(); }
+}
+
+/* --------------------------------------------------------------- measuring */
+function measure() {
+  const t = angleToTarget();
+  if (!state.locked) {
+    flashNote("未照准棱镜：用十字丝压住目标再测距");
+    return;
+  }
+  const eye = t.eye;
+  const dz = PRISM[1] - eye[1];
+  const sd = t.dist;
+  const hd = Math.hypot(PRISM[0] - eye[0], PRISM[2] - eye[2]);
+  const vd = dz;
+  const hz = ((state.yaw - state.hzZero) * 180 / Math.PI + 360) % 360;
+  const rad = hz * Math.PI / 180;
+  lastMeasure = {
+    sd, hd, vd,
+    n: STATION[0] + hd * Math.cos(rad),
+    e: STATION[1] + hd * Math.sin(rad),
+    z: STATION[2] + 1.5 + vd,
+    hz,
+  };
+  state.stepsDone[2] = true;
+  renderSteps();
+  flashNote("测距完成 · 斜距 " + sd.toFixed(3) + " m");
+}
+
+function flashNote(msg) {
+  const n = el("note");
+  n.textContent = msg;
+  n.style.color = "#c2452d";
+  clearTimeout(flashNote._t);
+  flashNote._t = setTimeout(() => {
+    n.textContent = "测站 N 1000.000 E 1000.000 Z 100.000 · 仪器高 1.500 m";
+    n.style.color = "";
+  }, 2600);
+}
+
+/* -------------------------------------------------------------------- input */
+let drag = null;
+scene.addEventListener("pointerdown", (e) => {
+  scene.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, orbit: e.button === 2 || e.shiftKey };
+  scene.classList.add("dragging");
+});
+scene.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.orbit) {
+    state.orbit.az -= dx * 0.006;
+    state.orbit.el = Math.max(0.06, Math.min(1.35, state.orbit.el + dy * 0.005));
+  } else if (!state.brake) {
+    state.yaw -= dx * 0.0016;
+    state.pitch = Math.max(-1.45, Math.min(1.2, state.pitch + dy * 0.0014));
+  }
+});
+let downAt = null;
+scene.addEventListener("pointerdown", (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+scene.addEventListener("pointerup", (e) => {
+  if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 5) {
+    const r = scene.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    let best = null, bestD = 13;
+    for (const h of hotspots) {
+      const d = Math.hypot((h.lx ?? h.x) - mx, (h.ly ?? h.y) - my);
+      if (d < bestD) { bestD = d; best = h.id; }
+    }
+    if (best) selectPart(best);
+  }
+  downAt = null;
+});
+const endDrag = () => { drag = null; scene.classList.remove("dragging"); };
+scene.addEventListener("pointerup", endDrag);
+scene.addEventListener("pointercancel", endDrag);
+scene.addEventListener("contextmenu", (e) => e.preventDefault());
+scene.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  state.orbit.r = Math.max(2.2, Math.min(12, state.orbit.r * (1 + Math.sign(e.deltaY) * 0.08)));
+}, { passive: false });
+
+window.addEventListener("keydown", (e) => {
+  const k = e.key;
+  const fine = e.shiftKey ? 0.0004 : 0.0022;
+  if (k === "ArrowLeft") { state.yaw += fine * 6; e.preventDefault(); }
+  if (k === "ArrowRight") { state.yaw -= fine * 6; e.preventDefault(); }
+  if (k === "ArrowUp") { state.pitch += fine * 6; e.preventDefault(); }
+  if (k === "ArrowDown") { state.pitch -= fine * 6; e.preventDefault(); }
+  if (k === "z") el("btn-zero").click();
+  if (k === "m") el("btn-measure").click();
+  if (k === "r") el("btn-record").click();
+});
+
+/* -------------------------------------------------------------------- parts */
+const PART_LIST = ["tripod", "base", "screws", "tribrach", "vial", "circle", "alidade", "standard", "tube", "focus", "display", "handle"];
+function partInfo(id) {
+  const map = {
+    tripod: PARTS.find((p) => p.id === "head"),
+    base: PARTS.find((p) => p.id === "base"),
+    screws: PARTS.find((p) => p.id === "screws"),
+    tribrach: PARTS.find((p) => p.id === "tribrach"),
+    vial: PARTS.find((p) => p.id === "vial"),
+    circle: PARTS.find((p) => p.id === "circle"),
+    alidade: PARTS.find((p) => p.id === "alidade"),
+    standard: PARTS.find((p) => p.id === "standard1"),
+    tube: PARTS.find((p) => p.id === "tube"),
+    focus: PARTS.find((p) => p.id === "focus"),
+    display: PARTS.find((p) => p.id === "display"),
+    handle: PARTS.find((p) => p.id === "handle"),
+  };
+  return map[id];
+}
+function buildParts() {
+  const box = el("parts");
+  box.innerHTML = "";
+  PART_LIST.forEach((id, i) => {
+    const p = partInfo(id);
+    if (!p) return;
+    const d = document.createElement("div");
+    d.className = "part";
+    d.dataset.id = id;
+    d.innerHTML = `<span class="n">${String(i + 1).padStart(2, "0")}</span><span class="t">${p.name}</span>`;
+    d.onclick = () => selectPart(id);
+    box.appendChild(d);
+  });
+}
+function selectPart(id) {
+  state.selected = state.selected === id ? null : id;
+  [...document.querySelectorAll(".part")].forEach((d) => d.classList.toggle("on", d.dataset.id === state.selected));
+  const p = partInfo(id);
+  const card = el("part-card");
+  if (!state.selected || !p) {
+    card.innerHTML = `<h3>点一个部件</h3><p>右侧列出仪器的主要部件。点选可高亮并在画面上找到它，同时显示它的作用。</p>`;
+    return;
+  }
+  card.innerHTML = `<h3>${p.name}</h3><p>${p.info}</p>`;
+}
+
+/* ------------------------------------------------------------------ buttons */
+const help = el("help");
+el("btn-help").onclick = () => help.showModal();
+el("btn-help").setAttribute("type", "button");
+el("help-close").onclick = () => help.close();
+help.addEventListener("click", (e) => { if (e.target === help) help.close(); });
+el("btn-measure").onclick = measure;
+el("btn-zero").onclick = () => {
+  state.hzZero = state.yaw;
+  state.stepsDone[3] = true;
+  renderSteps();
+  flashNote("水平角已置零");
+};
+el("btn-record").onclick = () => {
+  if (!lastMeasure) { flashNote("先测距，再记录"); return; }
+  const rec = {
+    i: state.records.length + 1,
+    hz: lastMeasure.hz,
+    sd: lastMeasure.sd,
+    n: lastMeasure.n,
+    e: lastMeasure.e,
+  };
+  state.records.push(rec);
+  const body = el("log").querySelector("tbody");
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>P${rec.i}</td><td>${rec.hz.toFixed(2)}°</td><td>${rec.sd.toFixed(3)}</td><td>${rec.n.toFixed(3)}</td><td>${rec.e.toFixed(3)}</td>`;
+  body.appendChild(tr);
+  renderSteps();
+  updateHud();
+};
+el("btn-focus").onclick = () => {
+  state.focus = state.focus >= 4 ? 1 : state.focus + 1;
+  const ideal = Math.max(1, Math.min(4, Math.round(1 + (Math.hypot(PRISM[0], PRISM[2]) - 1) / 1.2)));
+  flashNote(state.focus === ideal ? "调焦档位 " + state.focus + " / 4 · 成像清晰" : "调焦档位 " + state.focus + " / 4 · 模糊");
+};
+el("btn-lock").onclick = (e) => {
+  state.brake = !state.brake;
+  e.target.textContent = state.brake ? "松开" : "制动";
+  flashNote(state.brake ? "水平与垂直制动已锁死" : "制动已松开");
+};
+let nearView = false;
+el("btn-view").onclick = () => {
+  nearView = !nearView;
+  state.orbit = nearView
+    ? { az: 1.05, el: 0.22, r: 1.95, target: [0, 1.50, 0] }
+    : { az: 1.02, el: 0.20, r: 4.6, target: [1.1, 1.2, -0.7] };
+  flashNote(nearView ? "近景：可细看部件" : "全景：仪器、棱镜与墙面");
+};
+el("btn-reset").onclick = () => {
+  state.yaw = 1.86; state.pitch = 0.045; state.screws = [0, 0, 0];
+  state.hzZero = 0; lastMeasure = null; state.measured = null;
+  state.records = []; state.stepsDone = [false, false, false, false, false];
+  el("log").querySelector("tbody").innerHTML = "";
+  el("r-sd").textContent = "—"; el("r-hd").textContent = "—"; el("r-vd").textContent = "—"; el("r-xyz").textContent = "—";
+  renderSteps();
+  flashNote("已复位");
+};
+
+document.querySelectorAll("[data-screw]").forEach((b) => {
+  b.onclick = () => {
+    const i = Number(b.dataset.screw);
+    const dir = Number(b.dataset.dir);
+    state.screws[i] = Math.max(-0.016, Math.min(0.016, state.screws[i] + dir * 0.0016));
+  };
+});
+el("auto-level").onclick = () => {
+  state.screws = [0, 0, 0];
+  flashNote("已自动整平（模拟辅助）");
+};
+
+/* --------------------------------------------------------------------- init */
+resize();
+buildParts();
+renderSteps();
+updateTilt();
+requestAnimationFrame(frame);
+
+// test hook: ?preset=aimed
+const q = new URLSearchParams(location.search);
+if (q.get("preset") === "aimed") {
+  const eyeY = H_TRIPOD + Y_ALID + Y_TRUN;
+  state.pitch = Math.atan2(PRISM[1] - eyeY, Math.hypot(PRISM[0], PRISM[2]));
+  state.yaw = Math.atan2(PRISM[0], PRISM[2]);
+}
+if (q.get("preset") === "tilted") {
+  state.screws = [0.008, -0.004, -0.006];
+}
+if (q.get("part")) selectPart(q.get("part"));
+if (q.get("help")) setTimeout(() => help.showModal(), 200);
+if (q.get("do") === "measure") { setTimeout(() => { measure(); el("btn-record").click(); }, 250); }
+</script>
+</body>
+</html>
